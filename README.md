@@ -30,20 +30,19 @@ The application uses Redis to implement a distributed lock, ensuring that only o
 ## Setup
 
 ### Step 1: Clone the Repository
-
+```bash
 git clone https://github.com/yourusername/redis-lock-dotnet-app.git
 cd redis-lock-dotnet-app
-
+```
 ### Step 2: Build the Docker Image
-
+```bash
 docker build -t your-dockerhub-username/redislock:latest .
-
+```
 ### Step 3: Push the Docker Image
-
+```bash
 docker push your-dockerhub-username/redislock:latest
-
+```
 ### Step 4: Deploy to Kubernetes
-
 Create a Kubernetes deployment file (dotnetapp.yml) and apply it:
 
 ```yaml
@@ -89,54 +88,59 @@ spec:
               key: password
       imagePullSecrets:
 ```
-# Apply the deployment
+### Apply the deployment
 ```bash
 kubectl apply -f dotnetapp.yml
 ```
-# Running the Application
-# Start the Application
-# The application will start automatically upon deployment.
+## Running the Application
+### Start the Application
+### The application will start automatically upon deployment.
 
-# Check the Logs
-# Monitor the application logs to ensure it is functioning correctly.
+## Check the Logs
+### Monitor the application logs to ensure it is functioning correctly.
+```bash
 kubectl logs -n poc <pod-name>
-
-# Database Verification
-# Ensure data is being written to your PostgreSQL database by checking the my_table table.
+```
+## Database Verification
+### Ensure data is being written to your PostgreSQL database by checking the my_table table.
+```bash
 SELECT * FROM my_table;
+```
 
-# Configuration
-# The application uses environment variables to configure connections to Redis and PostgreSQL. 
-# You can set these variables in your Kubernetes deployment or locally for testing.
+## Configuration
+The application uses environment variables to configure connections to Redis and PostgreSQL. 
+You can set these variables in your Kubernetes deployment or locally for testing.
 
-# Environment Variables
-# REDIS_HOST: The host address of the Redis server.
-# REDIS_PORT: The port number for the Redis server.
-# REDIS_PASSWORD: The password for Redis authentication.
-# PG_HOST: The host address of the PostgreSQL server.
-# PG_DB: The PostgreSQL database name.
-# PG_USER: The PostgreSQL username.
-# PG_PASSWORD: The PostgreSQL password.
+ Environment Variables
+ REDIS_HOST: The host address of the Redis server.
+ REDIS_PORT: The port number for the Redis server.
+ REDIS_PASSWORD: The password for Redis authentication.
+ PG_HOST: The host address of the PostgreSQL server.
+ PG_DB: The PostgreSQL database name.
+ PG_USER: The PostgreSQL username.
+ PG_PASSWORD: The PostgreSQL password.
 
-# Redis and PostgreSQL Secrets
-# Create Kubernetes secrets for storing sensitive information such as passwords:
+## Redis and PostgreSQL Secrets
+### Create Kubernetes secrets for storing sensitive information such as passwords:
+```bash
 kubectl create secret generic redis-password --from-literal=password='YourRedisPassword' -n poc
 kubectl create secret generic my-postgresql --from-literal=postgres-password='YourPostgresPassword' -n poc
+```
 
-# Project Structure
-# redis-lock-dotnet-app/
-# ├── Dockerfile            # Dockerfile for building the application image
-# ├── Program.cs            # Main application logic
-# ├── RedisLockApp.csproj   # Project file
-# └── README.md             # This README file
+## Project Structure
+ redis-lock-dotnet-app/
+ ├── Dockerfile            # Dockerfile for building the application image
+ ├── Program.cs            # Main application logic
+ ├── RedisLockApp.csproj   # Project file
+ └── README.md             # This README file
 
-# Important Notes
-# Ensure that your Redis and PostgreSQL servers are accessible from the Kubernetes cluster.
-# Adjust the environment variables and configurations to match your deployment requirements.
-# The application logs provide detailed information on operations and errors.
+## Important Notes
+ Ensure that your Redis and PostgreSQL servers are accessible from the Kubernetes cluster.
+ Adjust the environment variables and configurations to match your deployment requirements.
+### The application logs provide detailed information on operations and errors.
 
-# Contributing
-# We welcome contributions to improve this project. Feel free to open issues or submit pull requests on GitHub.
+## Contributing
+ We welcome contributions to improve this project. Feel free to open issues or submit pull requests on GitHub.
 
-# License
-# This project is licensed under the MIT License. See the LICENSE file for details.
+### License
+This project is licensed under the MIT License. See the LICENSE file for details.
