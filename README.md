@@ -1,7 +1,6 @@
 # Redis Lock .NET Application
 
-This .NET application demonstrates how to use Redis for distributed locking and PostgreSQL for database operations. The application ensures that only one instance writes data to the database at a time, preventing duplicate entries and maintaining data integrity.
-
+This .NET application demonstrates how to use Redis for distributed locking and PostgreSQL for database operations. The application ensures that only one instance writes data to the database at a time, preventing duplicate entries and maintaining data integrity. The app also checks the Database before writing to it. It uses Redis caching and distrubuted lock. The point of the POC is to have an application running multi replicas in Kubernetes and not create duplicate databse entries
 ## Table of Contents
 
 - [Overview](#overview)
@@ -92,8 +91,6 @@ spec:
 ```bash
 kubectl apply -f dotnetapp.yml
 ```
-## Running the Application
-### Start the Application
 ### The application will start automatically upon deployment.
 
 ## Check the Logs
@@ -111,14 +108,14 @@ SELECT * FROM my_table;
 The application uses environment variables to configure connections to Redis and PostgreSQL. 
 You can set these variables in your Kubernetes deployment or locally for testing.
 
- Environment Variables
- REDIS_HOST: The host address of the Redis server.
- REDIS_PORT: The port number for the Redis server.
- REDIS_PASSWORD: The password for Redis authentication.
- PG_HOST: The host address of the PostgreSQL server.
- PG_DB: The PostgreSQL database name.
- PG_USER: The PostgreSQL username.
- PG_PASSWORD: The PostgreSQL password.
+- Environment Variables
+- REDIS_HOST: The host address of the Redis server.
+- REDIS_PORT: The port number for the Redis server.
+- REDIS_PASSWORD: The password for Redis authentication.
+- PG_HOST: The host address of the PostgreSQL server.
+- PG_DB: The PostgreSQL database name.
+- PG_USER: The PostgreSQL username.
+- PG_PASSWORD: The PostgreSQL password.
 
 ## Redis and PostgreSQL Secrets
 ### Create Kubernetes secrets for storing sensitive information such as passwords:
