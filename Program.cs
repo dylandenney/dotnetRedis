@@ -1,4 +1,4 @@
-﻿﻿using System;
+﻿using System;
 using System.Threading.Tasks;
 using Npgsql; // For PostgreSQL connection
 using StackExchange.Redis; // For Redis connection and operations
@@ -40,6 +40,9 @@ class Program
         await using var conn = new NpgsqlConnection(connectionString);
         await conn.OpenAsync();
 
+        // Initialize random number generator
+        var random = new Random();
+
         // Infinite loop to keep the application running and processing tasks
         while (true)
         {
@@ -66,49 +69,32 @@ class Program
                 {
                     Console.WriteLine("Lock acquired");
 
-                    // Key used to check if data is already processed
-                    var key = "example_data_key";
-                    var exists = await db.StringGetAsync(key); // Check if key exists in Redis
+                    // Generate a unique GUID for each entry
+                    var uniqueGuid = Guid.NewGuid();
 
-                    if (exists.IsNullOrEmpty)
-                    {
-                        // Validate against the database to ensure no duplicate entries
-                        var checkCmd = new NpgsqlCommand("SELECT COUNT(*) FROM my_table WHERE data = @data", conn);
-                        checkCmd.Parameters.AddWithValue("data", "example_data");
-                        var count = (long)await checkCmd.ExecuteScalarAsync();
+                    // Generate random data
+                    var randomValue = random.Next(1, 10000); // Generate a random number between 1 and 10000
+                    var data = $"Random data {randomValue} at {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}";
 
-                        if (count == 0)
-                        {
-                            // Set the key in Redis with a TTL of 30 seconds to mark data as processed
-                            await db.StringSetAsync(key, "example_data", TimeSpan.FromSeconds(30));
+                    // Insert new data into the PostgreSQL database
+                    var insertCmd = new NpgsqlCommand("INSERT INTO my_table (guid, data) VALUES (@guid, @data)", conn);
+                    insertCmd.Parameters.Add(new NpgsqlParameter("guid", NpgsqlTypes.NpgsqlDbType.Uuid) { Value = uniqueGuid });
+                    insertCmd.Parameters.AddWithValue("data", data);
+                    await insertCmd.ExecuteNonQueryAsync();
 
-                            // Insert new data into the PostgreSQL database
-                            var insertCmd = new NpgsqlCommand("INSERT INTO my_table (data) VALUES (@data)", conn);
-                            insertCmd.Parameters.AddWithValue("data", "example_data");
-                            await insertCmd.ExecuteNonQueryAsync();
-                            Console.WriteLine("Data written to database");
-                        }
-                        else
-                        {
-                            // Log that the data already exists in the database
-                            Console.WriteLine("Duplicate data detected in the database, skipping write.");
-                        }
-                    }
-                    else
-                    {
-                        // Log that the data already exists in Redis
-                        Console.WriteLine("Duplicate data detected in Redis, skipping write.");
-                    }
+                    // Set the key in Redis with a TTL of 30 seconds to mark data as processed
+                    var redisKey = $"data_{uniqueGuid}";
+                    await db.StringSetAsync(redisKey, data, TimeSpan.FromSeconds(30));
+
+                    Console.WriteLine("Data written to database: " + data);
                 }
                 else
                 {
-                    // Log that the lock could not be acquired
                     Console.WriteLine("Could not acquire lock");
                 }
             }
             catch (Exception ex)
             {
-                // Log any errors that occur during processing
                 Console.WriteLine($"Error: {ex.Message}");
             }
             finally
