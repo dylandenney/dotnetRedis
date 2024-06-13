@@ -1,13 +1,12 @@
 ﻿using System;
 using System.Threading.Tasks;
-using Npgsql; // For PostgreSQL connection
-using StackExchange.Redis; // For Redis connection and operations
+using Npgsql;
+using StackExchange.Redis;
 
 class Program
 {
     static async Task Main(string[] args)
     {
-        // Reading environment variables for configuration
         var redisHost = Environment.GetEnvironmentVariable("REDIS_HOST") ?? string.Empty;
         var redisPort = Environment.GetEnvironmentVariable("REDIS_PORT") ?? string.Empty;
         var redisPassword = Environment.GetEnvironmentVariable("REDIS_PASSWORD") ?? string.Empty;
@@ -15,104 +14,107 @@ class Program
         var pgDb = Environment.GetEnvironmentVariable("PG_DB") ?? string.Empty;
         var pgUser = Environment.GetEnvironmentVariable("PG_USER") ?? string.Empty;
         var pgPassword = Environment.GetEnvironmentVariable("PG_PASSWORD") ?? string.Empty;
-        var lockName = "my_lock"; // Lock name used in Redis to control access
 
-        // Logging connection details for debugging
-        Console.WriteLine($"Connecting to Redis at {redisHost}:{redisPort} with provided password.");
-        Console.WriteLine($"Connecting to PostgreSQL at {pgHost}.");
-
-        // Configure Redis connection settings
-        var options = new ConfigurationOptions
+        var redisOptions = new ConfigurationOptions
         {
             EndPoints = { $"{redisHost}:{redisPort}" },
             Password = redisPassword,
-            Ssl = false // Set to true if your Redis server uses SSL
+            Ssl = false
         };
 
-        // Connect to Redis
-        var redis = ConnectionMultiplexer.Connect(options);
-        var db = redis.GetDatabase(); // Access the default database
+        var redis = await ConnectionMultiplexer.ConnectAsync(redisOptions);
+        var db = redis.GetDatabase();
+        var streamName = "order_stream";
+        var consumerGroup = "order_group";
+        var consumerName = Guid.NewGuid().ToString();
 
-        // Connection string for PostgreSQL
-        var connectionString = $"Host={pgHost};Username={pgUser};Password={pgPassword};Database={pgDb}";
+        // Create the consumer group if it doesn't exist
+        try
+        {
+            db.StreamCreateConsumerGroup(streamName, consumerGroup, "$");
+        }
+        catch (RedisServerException ex) when (ex.Message.Contains("BUSYGROUP"))
+        {
+            Console.WriteLine("Consumer group already exists, skipping creation.");
+        }
 
-        // Open PostgreSQL connection
-        await using var conn = new NpgsqlConnection(connectionString);
-        await conn.OpenAsync();
+        var pgConnectionString = $"Host={pgHost};Username={pgUser};Password={pgPassword};Database={pgDb}";
 
-        // Initialize random number generator
-        var random = new Random();
+        await using var pgConnection = new NpgsqlConnection(pgConnectionString);
+        await pgConnection.OpenAsync();
 
-        // Infinite loop to keep the application running and processing tasks
+        // Producing orders to the stream
+        for (int i = 0; i < 10; i++) // Adjust the number of orders for testing
+        {
+            var orderNumber = $"ORD-{new Random().Next(1, 10000):D5}";
+            var itemName = $"Item {new Random().Next(1, 100)}";
+            var quantity = new Random().Next(1, 50);
+            
+            // Add order to stream
+            await db.StreamAddAsync(streamName, new NameValueEntry[]
+            {
+                new NameValueEntry("order_number", orderNumber),
+                new NameValueEntry("item_name", itemName),
+                new NameValueEntry("quantity", quantity.ToString())
+            });
+
+            Console.WriteLine($"Produced: {orderNumber}");
+        }
+
+        // Consuming orders from the stream with locking
         while (true)
         {
-            // Key used for locking mechanism in Redis
-            var lockKey = $"lock_{lockName}";
-            var lockToken = Guid.NewGuid().ToString(); // Unique token for the lock
-            var lockTimeout = TimeSpan.FromSeconds(10); // Lock timeout
-
             try
             {
-                // Lua script to acquire the lock in Redis
-                var script = @"
-                    if redis.call('setnx', KEYS[1], ARGV[1]) == 1 then
-                        redis.call('pexpire', KEYS[1], ARGV[2])
-                        return true
+                var entries = db.StreamReadGroup(streamName, consumerGroup, consumerName, ">", count: 10);
+
+                foreach (var entry in entries)
+                {
+                    var orderNumber = (string)entry.Values.FirstOrDefault(x => x.Name == "order_number").Value;
+                    var itemName = (string)entry.Values.FirstOrDefault(x => x.Name == "item_name").Value;
+                    var quantity = int.Parse((string)entry.Values.FirstOrDefault(x => x.Name == "quantity").Value);
+
+                    var lockKey = $"order_lock:{orderNumber}";
+                    var lockToken = Guid.NewGuid().ToString();
+
+                    if (await db.LockTakeAsync(lockKey, lockToken, TimeSpan.FromMinutes(1)))
+                    {
+                        try
+                        {
+                            var insertCommand = new NpgsqlCommand(
+                                "INSERT INTO simple_data (id, order_number, item_name, quantity) VALUES (@id, @order_number, @item_name, @quantity)",
+                                pgConnection
+                            );
+
+                            insertCommand.Parameters.AddWithValue("id", Guid.NewGuid());
+                            insertCommand.Parameters.AddWithValue("order_number", orderNumber);
+                            insertCommand.Parameters.AddWithValue("item_name", itemName);
+                            insertCommand.Parameters.AddWithValue("quantity", quantity);
+
+                            await insertCommand.ExecuteNonQueryAsync();
+                            Console.WriteLine($"Inserted into PostgreSQL: {orderNumber}, {itemName}, {quantity}");
+
+                            // Acknowledge message processing
+                            db.StreamAcknowledge(streamName, consumerGroup, entry.Id);
+                            Console.WriteLine($"Acknowledged message: {entry.Id}");
+                        }
+                        finally
+                        {
+                            // Release the lock
+                            await db.LockReleaseAsync(lockKey, lockToken);
+                        }
+                    }
                     else
-                        return false
-                    end";
-
-                // Execute the script to acquire the lock
-                var acquired = (bool)(await db.ScriptEvaluateAsync(script, new RedisKey[] { lockKey }, new RedisValue[] { lockToken, lockTimeout.TotalMilliseconds }));
-
-                if (acquired)
-                {
-                    Console.WriteLine("Lock acquired");
-
-                    // Generate a unique GUID for each entry
-                    var uniqueGuid = Guid.NewGuid();
-
-                    // Generate random data
-                    var randomValue = random.Next(1, 10000); // Generate a random number between 1 and 10000
-                    var data = $"Random data {randomValue} at {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}";
-
-                    // Insert new data into the PostgreSQL database
-                    var insertCmd = new NpgsqlCommand("INSERT INTO my_table (guid, data) VALUES (@guid, @data)", conn);
-                    insertCmd.Parameters.Add(new NpgsqlParameter("guid", NpgsqlTypes.NpgsqlDbType.Uuid) { Value = uniqueGuid });
-                    insertCmd.Parameters.AddWithValue("data", data);
-                    await insertCmd.ExecuteNonQueryAsync();
-
-                    // Set the key in Redis with a TTL of 30 seconds to mark data as processed
-                    var redisKey = $"data_{uniqueGuid}";
-                    await db.StringSetAsync(redisKey, data, TimeSpan.FromSeconds(30));
-
-                    Console.WriteLine("Data written to database: " + data);
-                }
-                else
-                {
-                    Console.WriteLine("Could not acquire lock");
+                    {
+                        Console.WriteLine($"Could not acquire lock for order: {orderNumber}. Skipping.");
+                    }
                 }
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error: {ex.Message}");
             }
-            finally
-            {
-                // Lua script to release the lock in Redis
-                var scriptRelease = @"
-                    if redis.call('get', KEYS[1]) == ARGV[1] then
-                        return redis.call('del', KEYS[1])
-                    else
-                        return 0
-                    end";
 
-                // Execute the script to release the lock
-                await db.ScriptEvaluateAsync(scriptRelease, new RedisKey[] { lockKey }, new RedisValue[] { lockToken });
-                Console.WriteLine("Lock released");
-            }
-
-            // Wait for 1 second before the next iteration to avoid tight loops
             await Task.Delay(1000);
         }
     }
