@@ -44,7 +44,8 @@ class Program
         await pgConnection.OpenAsync();
 
         // Producing orders to the stream
-        for (int i = 0; i < 10; i++) // Adjust the number of orders for testing
+        int totalOrders = 1000; // Produce 200 orders
+        for (int i = 0; i < totalOrders; i++)
         {
             var orderNumber = $"ORD-{new Random().Next(1, 10000):D5}";
             var itemName = $"Item {new Random().Next(1, 100)}";
